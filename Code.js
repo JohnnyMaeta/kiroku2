@@ -16,11 +16,51 @@ const HISTORY_HEADERS = ["ファイル名", "保存日時", "フォルダパス"
 /**
  * Webアプリのエントリーポイント
  */
+/**
+ * Webアプリのエントリーポイント (動作確認用)
+ */
 function doGet(e) {
-  createHistorySheetIfNotExists();
-  return HtmlService.createHtmlOutputFromFile('index')
-      .setTitle('スーパー記録くん - メディア記録アプリ')
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  return ContentService.createTextOutput('スーパー記録くん API 稼働中')
+    .setMimeType(ContentService.MimeType.TEXT);
+}
+
+/**
+ * 外部からのAPIリクエストを処理 (POST)
+ */
+function doPost(e) {
+  let response;
+  try {
+    const requestData = JSON.parse(e.postData.contents);
+    const functionName = requestData.function;
+    const args = requestData.args || [];
+
+    // 実行を許可する関数のリスト
+    const allowedFunctions = [
+      'saveAudioFile',
+      'saveVideoFile',
+      'savePhotoFile',
+      'saveDrawingFile',
+      'saveTextFile',
+      'getModeSettings'
+    ];
+
+    if (allowedFunctions.indexOf(functionName) === -1) {
+      throw new Error('未許可の関数呼び出しです。');
+    }
+
+    // 関数を実行
+    const result = this[functionName].apply(this, args);
+    response = result;
+
+  } catch (error) {
+    response = {
+      success: false,
+      message: 'APIエラー: ' + error.toString()
+    };
+  }
+
+  return ContentService.createTextOutput(JSON.stringify(response))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 /**
@@ -30,7 +70,7 @@ function getOrCreateFolderIdByName(folderName, parentFolder = DriveApp.getRootFo
   if (!folderName || typeof folderName !== 'string' || folderName.trim() === '') {
     throw new Error("有効なフォルダ名が指定されていません。");
   }
-  
+
   const folders = parentFolder.getFoldersByName(folderName);
   if (folders.hasNext()) {
     return folders.next().getId();
@@ -57,13 +97,13 @@ function getSubFolderNameFromSheet() {
       Logger.log(`シート "${SUBFOLDER_SHEET_NAME}" が見つかりません。`);
       return null;
     }
-    
+
     const subFolderName = sheet.getRange(SUBFOLDER_CELL).getValue().toString().trim();
     if (!subFolderName) {
       Logger.log(`セル "${SUBFOLDER_CELL}" にサブフォルダ名が入力されていません。`);
       return null;
     }
-    
+
     return subFolderName.replace(/[\\\/:\*\?"<>\|]/g, '_');
   } catch (e) {
     Logger.log(`スプレッドシートからのサブフォルダ名取得エラー: ${e.toString()}`);
@@ -77,12 +117,12 @@ function getSubFolderNameFromSheet() {
 function createHistorySheetIfNotExists() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   let sheet = ss.getSheetByName(HISTORY_SHEET_NAME);
-  
+
   if (!sheet) {
     sheet = ss.insertSheet(HISTORY_SHEET_NAME);
     sheet.appendRow(HISTORY_HEADERS);
     sheet.getRange(1, 1, 1, HISTORY_HEADERS.length).setFontWeight("bold");
-    
+
     // 列幅の設定
     sheet.setColumnWidth(1, 250); // ファイル名
     sheet.setColumnWidth(2, 150); // 保存日時
@@ -90,12 +130,12 @@ function createHistorySheetIfNotExists() {
     sheet.setColumnWidth(4, 300); // ファイルリンク
     sheet.setColumnWidth(5, 100); // ファイル形式
     sheet.setColumnWidth(6, 100); // メディアタイプ
-    
+
     Logger.log(`履歴シート "${HISTORY_SHEET_NAME}" を作成しました。`);
   } else {
     // 既存シートの列確認と追加
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    
+
     // メディアタイプ列がない場合は追加
     if (!headers.includes("メディアタイプ")) {
       const newCol = headers.length + 1;
@@ -103,7 +143,7 @@ function createHistorySheetIfNotExists() {
       sheet.getRange(1, newCol).setFontWeight("bold");
       sheet.setColumnWidth(newCol, 100);
     }
-    
+
     // ファイル形式列がない場合は追加
     if (!headers.includes("ファイル形式")) {
       const newCol = headers.includes("メディアタイプ") ? headers.length : headers.length + 1;
@@ -112,7 +152,7 @@ function createHistorySheetIfNotExists() {
       sheet.setColumnWidth(newCol, 100);
     }
   }
-  
+
   return sheet;
 }
 
@@ -124,20 +164,20 @@ function addRecordToHistorySheet(fileName, folderPathText, folderUrl, fileUrl, f
     const sheet = createHistorySheetIfNotExists();
     const timestamp = new Date();
     const formattedTimestamp = Utilities.formatDate(timestamp, Session.getScriptTimeZone(), "yyyy/MM/dd HH:mm:ss");
-    
+
     // ハイパーリンクの作成
     const folderLinkFormula = `=HYPERLINK("${folderUrl}","${folderPathText}")`;
     const fileLinkFormula = `=HYPERLINK("${fileUrl}","${fileName}")`;
-    
+
     sheet.appendRow([
-      fileName, 
-      formattedTimestamp, 
-      folderLinkFormula, 
-      fileLinkFormula, 
+      fileName,
+      formattedTimestamp,
+      folderLinkFormula,
+      fileLinkFormula,
       fileFormat.toUpperCase(),
       mediaType
     ]);
-    
+
     Logger.log(`履歴を記録しました: ${fileName}, ${mediaType}, ${fileFormat}`);
   } catch (e) {
     Logger.log(`履歴シートへの記録エラー: ${e.toString()}`);
@@ -155,15 +195,15 @@ function saveAudioFile(audioDataUrl, baseFileName) {
     if (!baseFileName || typeof baseFileName !== 'string' || baseFileName.trim() === '') {
       throw new Error("ファイル名が無効です。");
     }
-    
+
     const parentFolderId = getOrCreateFolderIdByName(PARENT_FOLDER_NAME);
     const parentFolder = DriveApp.getFolderById(parentFolderId);
     const subFolderNameRaw = getSubFolderNameFromSheet();
-    
+
     let targetFolder;
     let folderPathText;
     let targetFolderUrl;
-    
+
     if (subFolderNameRaw) {
       const subFolderId = getOrCreateFolderIdByName(subFolderNameRaw, parentFolder);
       targetFolder = DriveApp.getFolderById(subFolderId);
@@ -175,29 +215,29 @@ function saveAudioFile(audioDataUrl, baseFileName) {
       targetFolderUrl = parentFolder.getUrl();
       Logger.log(`サブフォルダ名が取得できなかったため、親フォルダに保存します。`);
     }
-    
+
     const parts = audioDataUrl.match(/^data:(.+?);base64,(.+)$/);
     if (!parts || parts.length !== 3) {
       throw new Error("無効なData URL形式です。");
     }
-    
+
     const mimeType = parts[1];
     const base64Data = parts[2];
-    
-    const finalFileName = baseFileName.toLowerCase().endsWith('.mp3') 
-                          ? baseFileName 
-                          : `${baseFileName}.mp3`;
-    
+
+    const finalFileName = baseFileName.toLowerCase().endsWith('.mp3')
+      ? baseFileName
+      : `${baseFileName}.mp3`;
+
     const decodedData = Utilities.base64Decode(base64Data);
     const blob = Utilities.newBlob(decodedData, mimeType, finalFileName);
     const file = targetFolder.createFile(blob);
     const fileUrl = file.getUrl();
-    
+
     // 履歴シートに記録（音声タイプを明記）
     addRecordToHistorySheet(finalFileName, folderPathText, targetFolderUrl, fileUrl, "MP3", "音声");
-    
+
     Logger.log(`音声ファイル "${finalFileName}" を保存しました。`);
-    
+
     return {
       success: true,
       message: `音声ファイル "${finalFileName}" をフォルダ「${folderPathText}」に保存しました。`,
@@ -222,21 +262,21 @@ function saveVideoFile(videoDataUrl, baseFileName, extension = 'webm', mimeType 
     if (!videoDataUrl || !baseFileName) {
       throw new Error("動画データまたはファイル名が無効です。");
     }
-    
+
     // 拡張子の検証
     const validExtensions = ['mp4', 'webm'];
     if (!validExtensions.includes(extension.toLowerCase())) {
       extension = 'webm';
     }
-    
+
     const parentFolderId = getOrCreateFolderIdByName(PARENT_FOLDER_NAME);
     const parentFolder = DriveApp.getFolderById(parentFolderId);
     const subFolderNameRaw = getSubFolderNameFromSheet();
-    
+
     let targetFolder;
     let folderPathText;
     let targetFolderUrl;
-    
+
     if (subFolderNameRaw) {
       const subFolderId = getOrCreateFolderIdByName(subFolderNameRaw, parentFolder);
       targetFolder = DriveApp.getFolderById(subFolderId);
@@ -247,21 +287,21 @@ function saveVideoFile(videoDataUrl, baseFileName, extension = 'webm', mimeType 
       folderPathText = parentFolder.getName();
       targetFolderUrl = parentFolder.getUrl();
     }
-    
+
     const parts = videoDataUrl.match(/^data:(.+?);base64,(.+)$/);
     if (!parts) throw new Error("無効なData URL形式です。");
-    
+
     const detectedMimeType = parts[1];
     const base64Data = parts[2];
-    
+
     const finalFileName = `${baseFileName}.${extension.toLowerCase()}`;
     const decodedData = Utilities.base64Decode(base64Data);
     const blob = Utilities.newBlob(decodedData, mimeType || detectedMimeType, finalFileName);
     const file = targetFolder.createFile(blob);
-    
+
     // 履歴に記録（動画タイプを明記）
     addRecordToHistorySheet(finalFileName, folderPathText, targetFolderUrl, file.getUrl(), extension, "動画");
-    
+
     return {
       success: true,
       message: `動画ファイル "${finalFileName}" (${extension.toUpperCase()}形式) をフォルダ「${folderPathText}」に保存しました。`
@@ -283,21 +323,21 @@ function savePhotoFile(photoDataUrl, baseFileName, extension = 'jpg') {
     if (!photoDataUrl || !baseFileName) {
       throw new Error("写真データまたはファイル名が無効です。");
     }
-    
+
     // 拡張子の検証
     const validExtensions = ['jpg', 'jpeg', 'png'];
     if (!validExtensions.includes(extension.toLowerCase())) {
       extension = 'jpg';
     }
-    
+
     const parentFolderId = getOrCreateFolderIdByName(PARENT_FOLDER_NAME);
     const parentFolder = DriveApp.getFolderById(parentFolderId);
     const subFolderNameRaw = getSubFolderNameFromSheet();
-    
+
     let targetFolder;
     let folderPathText;
     let targetFolderUrl;
-    
+
     if (subFolderNameRaw) {
       const subFolderId = getOrCreateFolderIdByName(subFolderNameRaw, parentFolder);
       targetFolder = DriveApp.getFolderById(subFolderId);
@@ -308,22 +348,22 @@ function savePhotoFile(photoDataUrl, baseFileName, extension = 'jpg') {
       folderPathText = parentFolder.getName();
       targetFolderUrl = parentFolder.getUrl();
     }
-    
+
     const parts = photoDataUrl.match(/^data:(.+?);base64,(.+)$/);
     if (!parts) throw new Error("無効なData URL形式です。");
-    
+
     const detectedMimeType = parts[1];
     const base64Data = parts[2];
-    
+
     const finalFileName = `${baseFileName}.${extension.toLowerCase()}`;
     const decodedData = Utilities.base64Decode(base64Data);
     const blob = Utilities.newBlob(decodedData, detectedMimeType, finalFileName);
     const file = targetFolder.createFile(blob);
-    
+
     // 履歴に記録（写真タイプを明記）
     const formatDisplay = extension.toUpperCase() === 'JPEG' ? 'JPG' : extension.toUpperCase();
     addRecordToHistorySheet(finalFileName, folderPathText, targetFolderUrl, file.getUrl(), formatDisplay, "写真");
-    
+
     return {
       success: true,
       message: `写真ファイル "${finalFileName}" (${formatDisplay}形式) をフォルダ「${folderPathText}」に保存しました。`
@@ -345,15 +385,15 @@ function saveDrawingFile(drawingDataUrl, baseFileName) {
     if (!drawingDataUrl || !baseFileName) {
       throw new Error("お絵かきデータまたはファイル名が無効です。");
     }
-    
+
     const parentFolderId = getOrCreateFolderIdByName(PARENT_FOLDER_NAME);
     const parentFolder = DriveApp.getFolderById(parentFolderId);
     const subFolderNameRaw = getSubFolderNameFromSheet();
-    
+
     let targetFolder;
     let folderPathText;
     let targetFolderUrl;
-    
+
     if (subFolderNameRaw) {
       const subFolderId = getOrCreateFolderIdByName(subFolderNameRaw, parentFolder);
       targetFolder = DriveApp.getFolderById(subFolderId);
@@ -364,21 +404,21 @@ function saveDrawingFile(drawingDataUrl, baseFileName) {
       folderPathText = parentFolder.getName();
       targetFolderUrl = parentFolder.getUrl();
     }
-    
+
     const parts = drawingDataUrl.match(/^data:(image\/png);base64,(.+)$/);
     if (!parts) throw new Error("無効なData URL形式です。PNG形式である必要があります。");
-    
+
     const mimeType = parts[1];
     const base64Data = parts[2];
-    
+
     const finalFileName = `${baseFileName}.png`;
     const decodedData = Utilities.base64Decode(base64Data);
     const blob = Utilities.newBlob(decodedData, mimeType, finalFileName);
     const file = targetFolder.createFile(blob);
-    
+
     // 履歴に記録（お絵かきタイプを明記）
     addRecordToHistorySheet(finalFileName, folderPathText, targetFolderUrl, file.getUrl(), "PNG", "お絵かき");
-    
+
     return {
       success: true,
       message: `お絵かきファイル "${finalFileName}" (PNG形式) をフォルダ「${folderPathText}」に保存しました。`
@@ -403,15 +443,15 @@ function saveTextFile(textData, baseFileName) {
     if (!baseFileName || typeof baseFileName !== 'string' || baseFileName.trim() === '') {
       throw new Error("ファイル名が無効です。");
     }
-    
+
     const parentFolderId = getOrCreateFolderIdByName(PARENT_FOLDER_NAME);
     const parentFolder = DriveApp.getFolderById(parentFolderId);
     const subFolderNameRaw = getSubFolderNameFromSheet();
-    
+
     let targetFolder;
     let folderPathText;
     let targetFolderUrl;
-    
+
     if (subFolderNameRaw) {
       const subFolderId = getOrCreateFolderIdByName(subFolderNameRaw, parentFolder);
       targetFolder = DriveApp.getFolderById(subFolderId);
@@ -422,14 +462,14 @@ function saveTextFile(textData, baseFileName) {
       folderPathText = parentFolder.getName();
       targetFolderUrl = parentFolder.getUrl();
     }
-    
+
     const finalFileName = `${baseFileName}.txt`;
     const file = targetFolder.createFile(finalFileName, textData, MimeType.PLAIN_TEXT);
     const fileUrl = file.getUrl();
-    
+
     // 履歴シートに記録
     addRecordToHistorySheet(finalFileName, folderPathText, targetFolderUrl, fileUrl, "TXT", "テキスト");
-    
+
     return {
       success: true,
       message: `テキストファイル "${finalFileName}" をフォルダ「${folderPathText}」に保存しました。`
@@ -450,26 +490,26 @@ function test_UnifiedMediaApp() {
   try {
     createHistorySheetIfNotExists();
     Logger.log("履歴シートの確認/作成完了");
-    
+
     const parentFolderId = getOrCreateFolderIdByName(PARENT_FOLDER_NAME);
     const parentFolder = DriveApp.getFolderById(parentFolderId);
     Logger.log(`親フォルダ: "${parentFolder.getName()}" URL: ${parentFolder.getUrl()}`);
-    
+
     const subFolderName = getSubFolderNameFromSheet();
     if (subFolderName) {
       Logger.log(`サブフォルダ名: "${subFolderName}"`);
     } else {
       Logger.log("サブフォルダ名が設定されていません");
     }
-    
+
     // テスト用の履歴記録
     const testAudioFile = "test_audio.mp3";
     const testVideoFile = "test_video.mp4";
     const dummyUrl = "https://drive.google.com/file/d/dummy/view";
-    
+
     addRecordToHistorySheet(testAudioFile, PARENT_FOLDER_NAME, parentFolder.getUrl(), dummyUrl, "MP3", "音声");
     addRecordToHistorySheet(testVideoFile, PARENT_FOLDER_NAME, parentFolder.getUrl(), dummyUrl, "MP4", "動画");
-    
+
     Logger.log("テスト完了。履歴シートを確認してください。");
   } catch (e) {
     Logger.log(`テストエラー: ${e.toString()}`);

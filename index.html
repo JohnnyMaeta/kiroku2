@@ -390,6 +390,66 @@
   </div>
 
   <script>
+    // ==========================================
+    // GAS Web App 設定
+    // ==========================================
+    // デプロイしたGASウェブアプリのURLをここに貼り付けてください
+    const GAS_WEB_APP_URL = ""; 
+
+    // GitHub Pagesなどの外部環境で動作させるための google.script.run 互換レイヤー
+    if (typeof google === 'undefined' || !google.script) {
+      window.google = {
+        script: {
+          run: (function() {
+            let _successHandler = null;
+            let _failureHandler = null;
+
+            const runFunc = (funcName, args) => {
+              if (!GAS_WEB_APP_URL) {
+                const errorMsg = 'GAS_WEB_APP_URL が設定されていません。実装プランを確認してください。';
+                console.error(errorMsg);
+                if (_failureHandler) _failureHandler(new Error(errorMsg));
+                return;
+              }
+
+              fetch(GAS_WEB_APP_URL, {
+                method: 'POST',
+                body: JSON.stringify({
+                  function: funcName,
+                  args: args
+                })
+              })
+              .then(response => response.json())
+              .then(data => {
+                if (_successHandler) _successHandler(data);
+              })
+              .catch(err => {
+                console.error('Fetch error:', err);
+                if (_failureHandler) _failureHandler(err);
+              });
+            };
+
+            return {
+              withSuccessHandler: function(handler) {
+                _successHandler = handler;
+                return this;
+              },
+              withFailureHandler: function(handler) {
+                _failureHandler = handler;
+                return this;
+              },
+              saveAudioFile: function() { runFunc('saveAudioFile', Array.from(arguments)); },
+              saveVideoFile: function() { runFunc('saveVideoFile', Array.from(arguments)); },
+              savePhotoFile: function() { runFunc('savePhotoFile', Array.from(arguments)); },
+              saveDrawingFile: function() { runFunc('saveDrawingFile', Array.from(arguments)); },
+              saveTextFile: function() { runFunc('saveTextFile', Array.from(arguments)); },
+              getModeSettings: function() { runFunc('getModeSettings', Array.from(arguments)); }
+            };
+          })()
+        }
+      };
+    }
+
     // グローバル変数
     let currentMode = 'audio';
     let audioContext, analyser, audioStream, audioMediaRecorder, audioChunks = [], audioBlob;
