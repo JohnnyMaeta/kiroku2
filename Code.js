@@ -18,7 +18,7 @@ const HISTORY_HEADERS = ["ファイル名", "保存日時", "フォルダパス"
  */
 function doGet(e) {
   createHistorySheetIfNotExists();
-  return HtmlService.createHtmlOutputFromFile('app')
+  return HtmlService.createHtmlOutputFromFile('index')
       .setTitle('スーパー記録くん - メディア記録アプリ')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
