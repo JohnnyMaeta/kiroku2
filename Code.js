@@ -30,6 +30,10 @@ function doGet(e) {
 function doPost(e) {
   let response;
   try {
+    if (!e || !e.postData || !e.postData.contents) {
+      throw new Error('リクエストデータが空です。');
+    }
+
     const requestData = JSON.parse(e.postData.contents);
     const functionName = requestData.function;
     const args = requestData.args || [];
@@ -45,14 +49,23 @@ function doPost(e) {
     ];
 
     if (allowedFunctions.indexOf(functionName) === -1) {
-      throw new Error('未許可の関数呼び出しです。');
+      throw new Error('未許可の関数呼び出しです: ' + functionName);
     }
 
-    // 関数を実行
-    const result = this[functionName].apply(this, args);
+    // 関数を明示的に呼び出す（最も確実な方法）
+    let result;
+    if (functionName === 'saveAudioFile') result = saveAudioFile.apply(null, args);
+    else if (functionName === 'saveVideoFile') result = saveVideoFile.apply(null, args);
+    else if (functionName === 'savePhotoFile') result = savePhotoFile.apply(null, args);
+    else if (functionName === 'saveDrawingFile') result = saveDrawingFile.apply(null, args);
+    else if (functionName === 'saveTextFile') result = saveTextFile.apply(null, args);
+    else if (functionName === 'getModeSettings') result = getModeSettings.apply(null, args);
+    else throw new Error('実行対象の関数が定義されていません: ' + functionName);
+
     response = result;
 
   } catch (error) {
+    console.error(error);
     response = {
       success: false,
       message: 'APIエラー: ' + error.toString()
